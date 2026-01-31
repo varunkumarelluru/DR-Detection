@@ -1,0 +1,9 @@
+flask
+flask-cors
+numpy
+pillow
+tensorflow
+twilio
+gunicorn
+# scikit-learn <-- Uncomment if using Sklearn
+matplotlib

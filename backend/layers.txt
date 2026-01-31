@@ -1,0 +1,2 @@
+sequential | (None, 224, 224, 3)
+efficientnetb0 | (None, 7, 7, 1280)

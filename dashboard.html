@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - ML Vision</title>
+    <link rel="stylesheet" href="active_styles/style.css">
+    <style>
+        .dashboard-container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Result Animation */
+        .result-bar {
+            height: 8px;
+            background: rgba(148, 163, 184, 0.2);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        .result-fill {
+            height: 100%;
+            background: var(--primary);
+            width: 0%;
+            transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="dashboard-container">
+        <!-- Mobile Menu Toggle -->
+        <!-- Mobile Top Bar -->
+        <div class="mobile-top-bar">
+            <button id="mobileMenuBtn" class="btn">
+                <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+            </button>
+            <h3 class="text-gradient" style="margin: 0; font-size: 1.5rem;">ML Vision</h3>
+        </div>
+
+        <!-- Sidebar Overlay -->
+        <div id="sidebarOverlay"
+            style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 150; display: none; backdrop-filter: blur(2px);">
+        </div>
+
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div style="margin-bottom: 3rem; padding: 0 12px;">
+                <h3 class="text-gradient">ML Vision</h3>
+            </div>
+
+            <nav>
+                <a href="#" id="nav-dashboard" class="nav-item active" onclick="switchView('dashboard')">
+                    <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                    </svg>
+                    Dashboard
+                </a>
+                <a href="#" id="nav-history" class="nav-item" onclick="switchView('history')">
+                    <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                    History
+                </a>
+                <a href="#" id="nav-settings" class="nav-item" onclick="switchView('settings')">
+                    <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    Settings
+                </a>
+
+                <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                    <a href="login.html" onclick="logout()" class="nav-item" style="color: #ef4444;">
+                        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                        </svg>
+                        Logout
+                    </a>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h2>Image Analysis</h2>
+                    <p>Upload an image to get instant predictions</p>
+                </div>
+                <div class="profile-container">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div style="text-align: right;">
+                            <span id="userDisplayName" style="display: block; font-weight: 500;">Guest User</span>
+                            <span style="font-size: 0.8rem; color: var(--text-muted);">Standard Plan</span>
+                        </div>
+                        <div id="userAvatar"
+                            style="width: 40px; height: 40px; border-radius: 50%; background: var(--primary); display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                            GU</div>
+                    </div>
+
+                    <!-- Dropdown Menu -->
+                    <div class="profile-dropdown">
+                        <div class="dropdown-header">
+                            <span style="font-size: 0.8rem;">Signed in as</span>
+                            <strong id="dropdownName" style="display: block; margin-top: 2px;">Guest User</strong>
+                        </div>
+                        <!-- Settings Link in Dropdown -->
+                        <a href="#" onclick="switchView('settings')" class="dropdown-item">
+                            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            Settings
+                        </a>
+                        <div style="height: 1px; background: var(--border-color); margin: 0.5rem 0;"></div>
+                        <a href="login.html" onclick="logout()" class="dropdown-item" style="color: #ef4444;">
+                            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                            </svg>
+                            Logout
+                        </a>
+                    </div>
+                </div>
+            </header>
+
+            <!-- View: Dashboard -->
+            <div id="view-dashboard" style="display: grid; grid-template-columns: 2fr 1fr; gap: 2rem;">
+
+                <!-- Upload Section -->
+                <div class="glass-card" style="max-width: none;">
+                    <div id="uploadZone" class="upload-zone">
+                        <svg width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="var(--primary)"
+                            style="margin-bottom: 1rem; opacity: 0.8;">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <h4 style="margin-bottom: 0.5rem;">Drag & drop your image here</h4>
+                        <p style="margin-bottom: 1.5rem;">Supports JPG, PNG (Max 5MB)</p>
+                        <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()">Browse
+                            Files</button>
+                        <input type="file" id="fileInput" hidden accept="image/*">
+                    </div>
+
+                    <!-- Preview Area (Hidden initially) -->
+                    <div id="previewArea" style="display: none; margin-top: 2rem; text-align: center;">
+                        <div style="position: relative; display: inline-block;">
+                            <img id="imagePreview" src="" alt="Preview"
+                                style="max-height: 400px; max-width: 100%; border-radius: var(--radius-md); box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                            <button id="removeImage"
+                                style="position: absolute; top: -10px; right: -10px; background: #ef4444; border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer;">×</button>
+                        </div>
+                        <div style="margin-top: 2rem;">
+                            <button id="predictBtn" class="btn btn-primary"
+                                style="width: auto; padding-left: 3rem; padding-right: 3rem;">
+                                Run Prediction
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results Section -->
+                <div>
+                    <!-- Recents (Removed) -->
+                    <!-- <div class="glass-card" style="margin-bottom: 1.5rem; max-width: none;"> ... </div> -->
+
+                    <!-- Live Result (Hidden initially) -->
+                    <div id="resultCard" class="glass-card"
+                        style="max-width: none; background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(15, 23, 42, 0.8)); display: none;">
+                        <h3 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 8px;">
+                            <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="var(--primary)">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Analysis Complete
+                        </h3>
+
+                        <div style="margin-bottom: 1.5rem;">
+                            <p>Primary Classification</p>
+                            <h2 id="resultLabel" class="text-gradient" style="margin-bottom: 0.5rem;">---</h2>
+                        </div>
+
+                        <div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                <span>Confidence Score</span>
+                                <span id="confidenceText" style="font-weight: bold; color: var(--primary);">0%</span>
+                            </div>
+                            <div class="result-bar">
+                                <div id="confidenceBar" class="result-fill"></div>
+                            </div>
+                        </div>
+
+                        <!-- Heatmap Section -->
+                        <div id="heatmapContainer" style="display: none; margin-top: 1.5rem; text-align: center;">
+                            <p style="margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Class
+                                Activation Map (Grad-CAM)</p>
+                            <img id="heatmapImage" src="" alt="Heatmap"
+                                style="max-width: 100%; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- View: History -->
+            <div id="view-history" style="display: none;">
+                <div class="glass-card" style="max-width: none;">
+                    <h2 class="text-gradient" style="margin-bottom: 1.5rem;">Prediction History</h2>
+                    <div id="historyTableContainer">
+                        <p>Loading history...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View: Settings -->
+            <div id="view-settings" style="display: none;">
+                <div class="glass-card" style="max-width: 600px; margin: 0 auto;">
+                    <h2 class="text-gradient" style="margin-bottom: 1.5rem;">User Profile</h2>
+
+                    <form id="settingsForm">
+                        <div class="form-group">
+                            <label class="label">Full Name</label>
+                            <input type="text" id="settingsName" class="input-field" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="label">Email</label>
+                            <input type="email" id="settingsEmail" class="input-field" disabled
+                                style="opacity: 0.7; cursor: not-allowed;">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="label">New Password (Optional)</label>
+                            <input type="password" id="settingsPassword" class="input-field"
+                                placeholder="Leave blank to keep current">
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Save Changes</button>
+                    </form>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- OTP Verification Modal -->
+    <div id="otpModal" class="modal">
+        <div class="modal-content">
+            <h3 style="margin-bottom: 1rem;">Verify It's You</h3>
+            <p style="margin-bottom: 1.5rem; font-size: 0.9rem;">To secure your account, please enter the OTP sent to
+                your email.</p>
+
+            <form id="otpVerifyForm">
+                <div class="form-group">
+                    <label class="label">One-Time Password</label>
+                    <input type="text" id="updateOtp" class="input-field" placeholder="123456" maxlength="6" required
+                        style="text-align: center; letter-spacing: 4px; font-size: 1.2rem;">
+                </div>
+
+                <div style="display: flex; gap: 1rem;">
+                    <button type="button" class="btn btn-secondary" onclick="closeOtpModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Verify & Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast"
+        style="position: fixed; bottom: 20px; right: 20px; background: var(--bg-card); border: 1px solid var(--primary); padding: 1rem 1.5rem; border-radius: var(--radius-md); transform: translateY(100px); opacity: 0; transition: all 0.5s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 100;">
+        <span id="toastMsg">Notification</span>
+    </div>
+
+    <script src="scripts/app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - ML Vision</title>
+    <link rel="stylesheet" href="active_styles/style.css">
+</head>
+
+<body>
+    <div class="full-screen">
+        <div class="glass-card">
+            <div style="text-align: center; margin-bottom: 2rem;">
+                <h2 class="text-gradient">Create Account</h2>
+                <p>Start your journey with ML Vision</p>
+            </div>
+
+            <form id="registerForm">
+                <div class="form-group">
+                    <label class="label" for="name">Full Name</label>
+                    <input type="text" id="name" class="input-field" placeholder="John Doe" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="label" for="email">Email Address</label>
+                    <input type="email" id="email" class="input-field" placeholder="name@company.com" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="label" for="phone">Phone Number</label>
+                    <input type="tel" id="phone" class="input-field" placeholder="+1234567890" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="label" for="password">Password</label>
+                    <input type="password" id="password" class="input-field" placeholder="••••••••" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="label" for="confirmPassword">Confirm Password</label>
+                    <input type="password" id="confirmPassword" class="input-field" placeholder="••••••••" required>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Create Account</button>
+            </form>
+
+            <div
+                style="text-align: center; margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+                <p>Already have an account? <a href="login.html" class="link">Sign in</a></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container (Required for app.js) -->
+    <div id="toast"
+        style="position: fixed; bottom: 20px; right: 20px; background: var(--bg-card); border: 1px solid var(--primary); padding: 1rem 1.5rem; border-radius: var(--radius-md); transform: translateY(100px); opacity: 0; transition: all 0.5s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 100;">
+        <span id="toastMsg">Notification</span>
+    </div>
+
+    <script src="scripts/app.js"></script>
+</body>
+
+</html>

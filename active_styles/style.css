@@ -406,6 +406,11 @@ p {
     transform: translateY(0);
 }
 
+/* Default: Hide Mobile Top Bar on Desktop */
+.mobile-top-bar {
+    display: none;
+}
+
 /* Responsive Design */
 @media (max-width: 900px) {
     #view-dashboard {

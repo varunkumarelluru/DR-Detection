@@ -1,7 +1,7 @@
 // DOM Elements
 // CHANGE THIS TO YOUR RENDER BACKEND URL AFTER DEPLOYING
 // const API_URL = 'https://your-app-name.onrender.com'; 
-const API_URL = 'http://127.0.0.1:5000';
+const API_URL = 'https://dr-detection-backend-av3m.onrender.com';
 
 const uploadZone = document.getElementById('uploadZone');
 const fileInput = document.getElementById('fileInput');

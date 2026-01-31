@@ -12,9 +12,11 @@ import random
 from datetime import datetime, timedelta
 import smtplib
 from email.mime.text import MIMEText
-from dotenv import load_dotenv
-
-load_dotenv() # Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv() # Load environment variables from .env file
+except ImportError:
+    pass # python-dotenv not installed, assuming env vars are set by host (Render)
 
 try:
     from twilio.rest import Client

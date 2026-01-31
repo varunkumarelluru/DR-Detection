@@ -40,9 +40,21 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             email TEXT NOT NULL UNIQUE,
-            password TEXT NOT NULL
+            password TEXT NOT NULL,
+            phone TEXT
         )
     ''')
+    
+    # Check for phone column (Migration for existing DBs)
+    try:
+        c.execute("PRAGMA table_info(users)")
+        columns = [info[1] for info in c.fetchall()]
+        if 'phone' not in columns:
+            print("Migrating DB: Adding phone column...")
+            c.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+    except Exception as e:
+        print(f"Migration warning: {e}")
+
     # Create History Table
     c.execute('''
         CREATE TABLE IF NOT EXISTS predictions (
@@ -55,6 +67,20 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(id)
         )
     ''')
+    
+    # Create OTP Table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS otps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            otp TEXT NOT NULL,
+            type TEXT DEFAULT 'login',
+            used BOOLEAN DEFAULT 0,
+            expires_at DATETIME,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    ''')
+
     conn.commit()
     conn.close()
 

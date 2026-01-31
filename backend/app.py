@@ -26,7 +26,8 @@ except ImportError:
 
 # Initialize Flask App
 app = Flask(__name__)
-CORS(app) 
+# Enable CORS for all domains (Required for cross-origin requests from Vercel/Render Frontend)
+CORS(app, resources={r"/*": {"origins": "*"}}) 
 
 # ==========================================
 # DATABASE SETUP

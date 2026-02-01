@@ -1,10 +1,8 @@
 flask
 flask-cors
-numpy
+numpy<2
 pillow
 tensorflow-cpu
 twilio
 gunicorn
 python-dotenv
-# scikit-learn <-- Uncomment if using Sklearn
-matplotlib

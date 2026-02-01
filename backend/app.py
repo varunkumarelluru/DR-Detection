@@ -1,10 +1,15 @@
 import os
+import sys
+# Set Matplotlib backend to Agg before importing pyplot
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image
 import numpy as np
-import io
-
 import io
 import sqlite3
 import hashlib
@@ -12,6 +17,9 @@ import random
 from datetime import datetime, timedelta
 import smtplib
 from email.mime.text import MIMEText
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+
 try:
     from dotenv import load_dotenv
     load_dotenv() # Load environment variables from .env file
@@ -27,7 +35,7 @@ except ImportError:
 # Initialize Flask App
 app = Flask(__name__)
 # Enable CORS for all domains (Required for cross-origin requests from Vercel/Render Frontend)
-CORS(app, resources={r"/*": {"origins": "*"}}) 
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # ==========================================
 # DATABASE SETUP
@@ -86,26 +94,60 @@ def init_db():
     conn.close()
 
 # Initialize DB on start
-init_db() 
+init_db()
 
+# Global variables for models
+model = None
+grad_model = None
+target_layer_name = None
 
+def init_models():
+    global model, grad_model, target_layer_name
+    try:
+        print("Loading model...")
+        model = load_model('effnetb0_aptos_best.keras')
+        print("Model loaded successfully!")
+        
+        # Identify Target Layer for Grad-CAM
+        for i, layer in enumerate(model.layers):
+            if 'efficientnet' in layer.name.lower() and len(layer.output_shape) == 4:
+                target_layer_name = layer.name
+                break
+            if 'top_activation' in layer.name:
+                target_layer_name = layer.name
+                break
+        
+        # Fallback search
+        if target_layer_name is None:
+            for i in range(len(model.layers)-1, -1, -1):
+                layer = model.layers[i]
+                if len(layer.output_shape) == 4:
+                    target_layer_name = layer.name
+                    break
+                    
+        if target_layer_name:
+            print(f"Grad-CAM Target Layer: {target_layer_name}")
+            try:
+                # Pre-build Grad-Model
+                last_conv_layer = model.get_layer(target_layer_name)
+                grad_model = tf.keras.models.Model(
+                    inputs=model.inputs, outputs=[last_conv_layer.output, model.output]
+                )
+                print("Grad-Model initialized successfully.")
+            except Exception as gm_e:
+                print(f"Could not init standard Grad-Model ({gm_e}). Will use manual fallback.")
+                grad_model = None
+        else:
+            print("Warning: No suitable 4D layer found for Grad-CAM.")
 
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        model = None
 
-from tensorflow.keras.models import load_model
-try:
-    print("Loading model...")
-    model = load_model('effnetb0_aptos_best.keras')
-    print("Model loaded successfully!")
-    
-    
-    CLASS_NAMES = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
-    
-except Exception as e:
-    print(f"Error loading model: {e}")
-    model = None
+# Initialize on start
+init_models()
 
-
-
+CLASS_NAMES = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
 
 def preprocess_image(image_bytes):
     image = Image.open(io.BytesIO(image_bytes))
@@ -119,8 +161,6 @@ def preprocess_image(image_bytes):
     # 2. Convert to array
     image_array = np.array(image)
     
-
-   
     image_array = np.expand_dims(image_array, axis=0)
     
     return image_array
@@ -213,47 +253,23 @@ def predict():
         
         # --- GRAD-CAM GENERATION ---
         heatmap_base64 = None
-        # --- GRAD-CAM GENERATION ---
-        heatmap_base64 = None
         try:
-            # Strategies to find the "Feature Extractor" layer usually the last 4D layer.
-            target_layer_name = None
-            target_layer_index = -1
-            
-            for i, layer in enumerate(model.layers):
-                if 'efficientnet' in layer.name.lower() and len(layer.output_shape) == 4:
-                    target_layer_name = layer.name
-                    target_layer_index = i
-                    break
-                if 'top_activation' in layer.name:
-                    target_layer_name = layer.name
-                    target_layer_index = i
-                    break
-            
-            # Fallback
-            if target_layer_name is None:
-                for i in range(len(model.layers)-1, -1, -1):
-                    layer = model.layers[i]
-                    if len(layer.output_shape) == 4:
-                        target_layer_name = layer.name
-                        target_layer_index = i
-                        break
-
             if target_layer_name:
-                print(f"Grad-CAM Target Layer: {target_layer_name}")
-                
                 # Use standard Grad-CAM approach (robust version)
                 heatmap = make_gradcam_heatmap(processed_data, model, target_layer_name, pred_index=predicted_class_index)
                 
                 if heatmap is not None:
                     # Superimpose
-                    original_img = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((224, 224))
-                    original_img_array = np.array(original_img)
-                    heatmap_base64 = save_and_display_gradcam(original_img_array, heatmap)
+                    try:
+                        original_img = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((224, 224))
+                        original_img_array = np.array(original_img)
+                        heatmap_base64 = save_and_display_gradcam(original_img_array, heatmap)
+                    except Exception as img_err:
+                        print(f"Error processing heatmap image: {img_err}")
                 else:
                     print("Grad-CAM generation returned None.")
             else:
-                print("Grad-CAM Warning: No suitable 4D layer found.")
+                print("Grad-CAM Warning: No suitable 4D layer found (Global Check Failed).")
 
         except Exception as grad_cam_error:
             import traceback
@@ -287,16 +303,7 @@ def predict():
 # ==========================================
 # GRAD-CAM HELPERS
 # ==========================================
-import tensorflow as tf
-import matplotlib.cm as cm
-import base64
 
-# ==========================================
-# GRAD-CAM HELPERS
-# ==========================================
-import tensorflow as tf
-import matplotlib.cm as cm
-import base64
 
 def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None):
     """
@@ -311,15 +318,19 @@ def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None
         return make_gradcam_heatmap_manual_execution(img_array, model, last_conv_layer_name, pred_index)
 
 def make_gradcam_heatmap_standard(img_array, model, last_conv_layer_name, pred_index=None):
-    # Create a model that maps the input image to the activations
-    # of the last conv layer as well as the output predictions
-    try:
-        last_conv_layer = model.get_layer(last_conv_layer_name)
-        grad_model = tf.keras.models.Model(
-            inputs=model.inputs, outputs=[last_conv_layer.output, model.output]
-        )
-    except Exception as e:
-        raise e
+    # Use global grad_model if available to save memory/time
+    global grad_model
+    
+    local_grad_model = grad_model
+    if local_grad_model is None:
+         # Fallback to creating it on fly if global failed init or was never set
+         try:
+            last_conv_layer = model.get_layer(last_conv_layer_name)
+            local_grad_model = tf.keras.models.Model(
+                inputs=model.inputs, outputs=[last_conv_layer.output, model.output]
+            )
+         except Exception as e:
+            raise e
 
     # GradientTape
     with tf.GradientTape() as tape:
@@ -327,7 +338,7 @@ def make_gradcam_heatmap_standard(img_array, model, last_conv_layer_name, pred_i
         img_array = tf.cast(img_array, tf.float32)
         
         # Forward pass
-        outputs = grad_model(img_array)
+        outputs = local_grad_model(img_array)
         
         last_conv_layer_output = outputs[0]
         preds = outputs[1]

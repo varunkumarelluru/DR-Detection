@@ -2,8 +2,9 @@ flask
 flask-cors
 numpy
 pillow
-tensorflow
+tensorflow-cpu
 twilio
 gunicorn
+python-dotenv
 # scikit-learn <-- Uncomment if using Sklearn
 matplotlib

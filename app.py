@@ -25,6 +25,14 @@ from flask_cors import CORS
 tf.config.threading.set_intra_op_parallelism_threads(1)
 tf.config.threading.set_inter_op_parallelism_threads(1)
 
+# Enable Memory Growth
+try:
+    physical_devices = tf.config.list_physical_devices('CPU') # Render uses CPU
+    if physical_devices:
+        pass # memory growth is for GPU, but good to check devices
+except:
+    pass
+
 try:
     from dotenv import load_dotenv
     load_dotenv() # Load environment variables from .env file
@@ -324,21 +332,21 @@ def predict():
         label = CLASS_NAMES[predicted_class_index]
         confidence = float(np.max(prediction)) * 100
         
-        # Grad-CAM
+        # Grad-CAM (Disabled for stability on free tier)
         heatmap_base64 = None
-        try:
-            if target_layer_name and grad_model:
-                heatmap = make_gradcam_heatmap(processed_data, model, target_layer_name, pred_index=predicted_class_index)
-                if heatmap is not None:
-                     # Superimpose
-                     try:
-                        original_img = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((224, 224))
-                        original_img_array = np.array(original_img)
-                        heatmap_base64 = save_and_display_gradcam(original_img_array, heatmap)
-                     except Exception as img_err:
-                        print(f"Error processing heatmap image: {img_err}")
-        except Exception as grad_cam_error:
-            print(f"Grad-CAM wrapper failed: {grad_cam_error}")
+        # try:
+        #     if target_layer_name and grad_model:
+        #         heatmap = make_gradcam_heatmap(processed_data, model, target_layer_name, pred_index=predicted_class_index)
+        #         if heatmap is not None:
+        #              # Superimpose
+        #              try:
+        #                 original_img = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((224, 224))
+        #                 original_img_array = np.array(original_img)
+        #                 heatmap_base64 = save_and_display_gradcam(original_img_array, heatmap)
+        #              except Exception as img_err:
+        #                 print(f"Error processing heatmap image: {img_err}")
+        # except Exception as grad_cam_error:
+        #     print(f"Grad-CAM wrapper failed: {grad_cam_error}")
         
         # Save History
         if user_id:

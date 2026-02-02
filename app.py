@@ -17,7 +17,6 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.models import load_model
 from PIL import Image
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -114,7 +113,10 @@ def init_models():
     global model, grad_model, target_layer_name
     try:
         print("Loading model...")
-        model = load_model('effnetb0_aptos_best.keras')
+        model = tf.keras.models.load_model(
+            "model_tf215_savedmodel",
+            compile=False
+        )
         print("Model loaded successfully!")
         
         # Identify Target Layer for Grad-CAM

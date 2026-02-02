@@ -114,7 +114,7 @@ def init_models():
     try:
         print("Loading model...")
         model = tf.keras.models.load_model(
-            "model_tf215_savedmodel",
+            "effnetb0_aptos_best (1).keras",
             compile=False
         )
         print("Model loaded successfully!")

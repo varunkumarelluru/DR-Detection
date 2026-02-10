@@ -37,17 +37,21 @@ except ImportError:
     Client = None
 
 # =========================
-# FLASK + CORS (FIXED)
+# FLASK + CORS (FINAL FIX)
 # =========================
 app = Flask(__name__)
 
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+CORS(app, resources={r"/*": {"origins": [
+    "https://mlvision.netlify.app",
+    "http://localhost:5500",
+    "http://127.0.0.1:5500"
+]}})
 
 @app.after_request
 def after_request(response):
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
-    response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+    response.headers["Access-Control-Allow-Origin"] = "https://mlvision.netlify.app"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
     return response
 
 # =========================
@@ -129,8 +133,11 @@ def preprocess_image(image_bytes):
 def home():
     return "Backend is running"
 
-@app.route("/predict", methods=["POST"])
+@app.route("/predict", methods=["POST", "OPTIONS"])
 def predict():
+    if request.method == "OPTIONS":
+        return "", 200
+
     if "image" not in request.files:
         return jsonify({"error": "No image uploaded"}), 400
 
@@ -169,7 +176,8 @@ def register():
     try:
         conn = sqlite3.connect("database.db")
         c = conn.cursor()
-        c.execute("INSERT INTO users (name,email,password,phone) VALUES (?,?,?,?)", (name, email, hashed, phone))
+        c.execute("INSERT INTO users (name,email,password,phone) VALUES (?,?,?,?)",
+                  (name, email, hashed, phone))
         conn.commit()
         conn.close()
         return jsonify({"message": "Registered successfully"}), 201

@@ -99,20 +99,26 @@ def init_db():
 init_db()
 
 # =========================
-# MODEL
+# MODEL (TFLITE – ROOT PATH)
 # =========================
-model = None
+interpreter = None
+input_details = None
+output_details = None
+
 CLASS_NAMES = ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"]
 
 def init_models():
-    global model
+    global interpreter, input_details, output_details
     try:
-        print("Loading model...")
-        model = tf.keras.models.load_model("effnetb0_aptos_best.keras", compile=False)
-        print("Model loaded successfully!")
+        print("Loading TFLite model...")
+        interpreter = tf.lite.Interpreter(model_path="effnetb0_aptos_best.tflite")  # root folder
+        interpreter.allocate_tensors()
+        input_details = interpreter.get_input_details()
+        output_details = interpreter.get_output_details()
+        print("TFLite model loaded successfully!")
     except Exception as e:
         print("Model load error:", e)
-        model = None
+        interpreter = None
 
 init_models()
 
@@ -122,7 +128,7 @@ init_models()
 def preprocess_image(image_bytes):
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     image = image.resize((224, 224))
-    arr = np.array(image)
+    arr = np.array(image, dtype=np.float32)
     arr = np.expand_dims(arr, axis=0)
     return arr
 
@@ -141,14 +147,17 @@ def predict():
     if "image" not in request.files:
         return jsonify({"error": "No image uploaded"}), 400
 
-    if model is None:
+    if interpreter is None:
         return jsonify({"error": "Model not loaded"}), 500
 
     file = request.files["image"]
     img_bytes = file.read()
 
     img = preprocess_image(img_bytes)
-    pred = model.predict(img)
+
+    interpreter.set_tensor(input_details[0]['index'], img)
+    interpreter.invoke()
+    pred = interpreter.get_tensor(output_details[0]['index'])
 
     idx = int(np.argmax(pred))
     label = CLASS_NAMES[idx]

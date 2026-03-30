@@ -213,11 +213,15 @@
                         </div>
 
                         <!-- Heatmap Section -->
-                        <div id="heatmapContainer" style="display: none; margin-top: 1.5rem; text-align: center;">
-                            <p style="margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">Class
-                                Activation Map (Grad-CAM)</p>
-                            <img id="heatmapImage" src="" alt="Heatmap"
-                                style="max-width: 100%; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+                        <div id="heatmapContainer" style="display: none; margin-top: 1.5rem;">
+                            <p style="margin-bottom: 0.75rem; font-size: 0.9rem; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+                                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                Grad-CAM Activation Map
+                            </p>
+                            <!-- Loading spinner shown while gradcam is computing -->
+                            <div id="heatmapLoading" style="display:none; align-items:center; justify-content:center; gap:0.75rem; padding:1.5rem; background:rgba(139,92,246,0.05); border-radius:8px; border:1px dashed rgba(139,92,246,0.3);"></div>
+                            <img id="heatmapImage" src="" alt="Grad-CAM Heatmap"
+                                style="display:none; max-width: 100%; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
                         </div>
                     </div>
                 </div>

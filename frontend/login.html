@@ -16,16 +16,6 @@
                 <p>Enter your credentials to access the platform</p>
             </div>
 
-            <!-- Login Type Toggle -->
-            <div style="display: flex; gap: 1rem; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color);">
-                <button id="tabEmail" class="btn btn-secondary"
-                    style="border: none; border-bottom: 2px solid var(--primary); border-radius: 0; color: var(--text-main); flex: 1;"
-                    onclick="switchLoginTab('email')">Email Login</button>
-                <button id="tabPhone" class="btn btn-secondary"
-                    style="border: none; border-bottom: 2px solid transparent; border-radius: 0; flex: 1;"
-                    onclick="switchLoginTab('phone')">Phone Login</button>
-            </div>
-
             <!-- Email Login Form -->
             <form id="loginForm">
                 <div class="form-group">
@@ -43,30 +33,6 @@
                 </div>
 
                 <button type="submit" class="btn btn-primary">Sign In</button>
-            </form>
-
-            <!-- Phone Login Form -->
-            <form id="loginPhoneForm" style="display: none;">
-                <div id="phoneStep1">
-                    <div class="form-group">
-                        <label class="label" for="loginPhone">Phone Number</label>
-                        <input type="tel" id="loginPhone" class="input-field" placeholder="+1234567890">
-                    </div>
-                    <button type="button" id="getOtpBtn" class="btn btn-primary" onclick="requestLoginOTP()">Get
-                        OTP</button>
-                </div>
-
-                <div id="phoneStep2" style="display: none;">
-                    <div class="form-group">
-                        <label class="label" for="loginOtp">Enter OTP</label>
-                        <input type="text" id="loginOtp" class="input-field" placeholder="123456" maxlength="6">
-                        <p style="font-size: 0.8rem; margin-top: 0.5rem; color: var(--text-muted);">OTP sent to your
-                            email.</p>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Verify & Login</button>
-                    <button type="button" class="btn btn-secondary" style="margin-top: 0.5rem;"
-                        onclick="resetPhoneLogin()">Back</button>
-                </div>
             </form>
 
             <div

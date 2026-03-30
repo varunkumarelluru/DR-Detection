@@ -141,12 +141,108 @@ def preprocess_image(image_bytes):
     arr = np.expand_dims(arr, axis=0)
     return arr
 
+def fast_gradcam(img_array, target_class_idx, grid=8):
+    """
+    Fast occlusion-based saliency map using the TFLite interpreter.
+    Divides the image into grid x grid patches, occludes each one,
+    measures confidence drop -> builds heatmap.
+    img_array: shape (1, 224, 224, 3) float32
+    Returns: base64 PNG string (overlay on original)
+    """
+    try:
+        H, W = 224, 224
+        patch_h = H // grid
+        patch_w = W // grid
+        saliency = np.zeros((grid, grid), dtype=np.float32)
+
+        # Baseline confidence
+        interpreter.set_tensor(input_details[0]['index'], img_array)
+        interpreter.invoke()
+        base_pred = interpreter.get_tensor(output_details[0]['index'])[0]
+        base_conf = float(base_pred[target_class_idx])
+
+        # Occlude each patch
+        for i in range(grid):
+            for j in range(grid):
+                occluded = img_array.copy()
+                y1, y2 = i * patch_h, (i + 1) * patch_h
+                x1, x2 = j * patch_w, (j + 1) * patch_w
+                occluded[0, y1:y2, x1:x2, :] = 128.0  # grey patch
+                interpreter.set_tensor(input_details[0]['index'], occluded)
+                interpreter.invoke()
+                occ_pred = interpreter.get_tensor(output_details[0]['index'])[0]
+                occ_conf = float(occ_pred[target_class_idx])
+                # Drop in confidence = importance of this patch
+                saliency[i, j] = max(0.0, base_conf - occ_conf)
+
+        # Normalise
+        max_val = saliency.max()
+        if max_val > 0:
+            saliency = saliency / max_val
+
+        # Upscale saliency to 224x224 using PIL
+        sal_img = Image.fromarray(np.uint8(saliency * 255), mode='L')
+        sal_img = sal_img.resize((W, H), Image.BILINEAR)
+        sal_arr = np.array(sal_img) / 255.0
+
+        # Colormap: blue->green->red
+        r = np.clip(sal_arr * 2 - 1, 0, 1)
+        g = np.clip(1 - np.abs(sal_arr * 2 - 1), 0, 1)
+        b = np.clip(1 - sal_arr * 2, 0, 1)
+        heatmap = np.stack([r, g, b], axis=-1)
+        heatmap_pil = Image.fromarray(np.uint8(heatmap * 255), mode='RGB')
+
+        # Overlay on original image
+        orig_pil = Image.fromarray(np.uint8(img_array[0]), mode='RGB')
+        overlay = Image.blend(orig_pil, heatmap_pil, alpha=0.45)
+
+        buffered = io.BytesIO()
+        overlay.save(buffered, format="PNG")
+        b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        return f"data:image/png;base64,{b64}"
+
+    except Exception as e:
+        print("Grad-CAM error:", e)
+        return None
+
 # =========================
 # ROUTES
 # =========================
 @app.route("/")
 def home():
     return "Backend is running"
+
+# =========================
+# GRADCAM ENDPOINT
+# =========================
+@app.route("/gradcam", methods=["POST", "OPTIONS"])
+def gradcam():
+    if request.method == "OPTIONS":
+        return "", 200
+
+    if "image" not in request.files:
+        return jsonify({"error": "No image uploaded"}), 400
+
+    if interpreter is None:
+        return jsonify({"error": "Model not loaded"}), 500
+
+    file = request.files["image"]
+    img_bytes = file.read()
+    img = preprocess_image(img_bytes)
+
+    # Run prediction to get class index
+    interpreter.set_tensor(input_details[0]['index'], img)
+    interpreter.invoke()
+    pred = interpreter.get_tensor(output_details[0]['index'])
+    target_idx = int(np.argmax(pred))
+
+    # Generate heatmap
+    heatmap_b64 = fast_gradcam(img, target_idx, grid=8)
+
+    if heatmap_b64:
+        return jsonify({"heatmap": heatmap_b64})
+    else:
+        return jsonify({"error": "Grad-CAM generation failed"}), 500
 
 @app.route("/predict", methods=["POST", "OPTIONS"])
 def predict():
@@ -235,6 +331,149 @@ def login():
     if user:
         return jsonify({"message": "Login success", "user": {"id": user[0], "name": user[1], "email": user[2]}})
     return jsonify({"error": "Invalid credentials"}), 401
+
+# =========================
+# OTP HELPERS
+# =========================
+def send_otp_email(to_email, otp_code, subject="Your OTP Code"):
+    """Send OTP via email. Falls back to console print if not configured."""
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", 587))
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
+
+    if not smtp_user or not smtp_pass:
+        # No email config — just print to console (dev mode)
+        print(f"[DEV OTP] To: {to_email} | Code: {otp_code}")
+        return True
+
+    try:
+        msg = MIMEText(
+            f"Your ML Vision verification code is: {otp_code}\n\nThis code expires in 10 minutes.",
+            "plain"
+        )
+        msg["Subject"] = subject
+        msg["From"] = smtp_user
+        msg["To"] = to_email
+
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, to_email, msg.as_string())
+        return True
+    except Exception as e:
+        print("Email send error:", e)
+        return False
+
+# =========================
+# OTP REQUEST (Phone/Email Login & Profile Update)
+# =========================
+@app.route("/auth/otp/request", methods=["POST", "OPTIONS"])
+def request_otp():
+    if request.method == "OPTIONS":
+        return "", 200
+
+    data = request.json
+    identifier = data.get("identifier", "").strip()   # phone number or email
+    otp_type = data.get("type", "login")              # 'login' or 'update'
+
+    if not identifier:
+        return jsonify({"error": "identifier (phone or email) is required"}), 400
+
+    # Look up user by phone OR email
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+    c.execute(
+        "SELECT id, name, email FROM users WHERE phone=? OR email=?",
+        (identifier, identifier)
+    )
+    user = c.fetchone()
+
+    if not user:
+        conn.close()
+        return jsonify({"error": "No account found with that phone/email"}), 404
+
+    user_id, user_name, user_email = user
+
+    # Generate 6-digit OTP
+    otp_code = str(random.randint(100000, 999999))
+    expires_at = (datetime.utcnow() + timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+
+    # Invalidate old OTPs of the same type for this user
+    c.execute(
+        "UPDATE otps SET used=1 WHERE user_id=? AND type=? AND used=0",
+        (user_id, otp_type)
+    )
+
+    # Store new OTP
+    c.execute(
+        "INSERT INTO otps (user_id, otp, type, used, expires_at) VALUES (?,?,?,0,?)",
+        (user_id, otp_code, otp_type, expires_at)
+    )
+    conn.commit()
+    conn.close()
+
+    # Send OTP via email (email is always available; phone is the "identifier" used to look up)
+    sent = send_otp_email(user_email, otp_code, subject="ML Vision Login OTP")
+
+    if sent:
+        return jsonify({"message": f"OTP sent to your registered email ({user_email[:3]}***@{user_email.split('@')[-1]})"}), 200
+    else:
+        return jsonify({"error": "Failed to send OTP. Please try email login instead."}), 500
+
+# =========================
+# PHONE OTP LOGIN
+# =========================
+@app.route("/auth/login/phone", methods=["POST", "OPTIONS"])
+def login_phone():
+    if request.method == "OPTIONS":
+        return "", 200
+
+    data = request.json
+    phone = data.get("phone", "").strip()
+    otp_code = data.get("otp", "").strip()
+
+    if not phone or not otp_code:
+        return jsonify({"error": "Phone and OTP are required"}), 400
+
+    # Look up user by phone
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+    c.execute("SELECT id, name, email FROM users WHERE phone=?", (phone,))
+    user = c.fetchone()
+
+    if not user:
+        conn.close()
+        return jsonify({"error": "No account found with that phone number"}), 404
+
+    user_id, user_name, user_email = user
+
+    # Validate OTP
+    c.execute(
+        """SELECT id FROM otps
+           WHERE user_id=? AND otp=? AND type='login' AND used=0
+           AND expires_at > datetime('now')""",
+        (user_id, otp_code)
+    )
+    otp_row = c.fetchone()
+
+    if not otp_row:
+        conn.close()
+        return jsonify({"error": "Invalid or expired OTP"}), 403
+
+    # Mark OTP as used
+    c.execute("UPDATE otps SET used=1 WHERE id=?", (otp_row[0],))
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "message": "Login successful",
+        "user": {
+            "id": user_id,
+            "name": user_name,
+            "email": user_email
+        }
+    }), 200
 
 # =========================
 # HISTORY

@@ -312,96 +312,7 @@ if (registerForm) {
     });
 }
 
-// Phone Login Logic
-const loginPhoneForm = document.getElementById('loginPhoneForm');
 
-if (loginPhoneForm) {
-    loginPhoneForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const phone = document.getElementById('loginPhone').value;
-        const otp = document.getElementById('loginOtp').value;
-        const btn = e.target.querySelector('button[type="submit"]');
-
-        setLoading(btn, true, 'Verifying...');
-
-        try {
-            const res = await fetch(`${API_URL}/auth/login/phone`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone, otp })
-            });
-            const data = await res.json();
-
-            if (res.ok) {
-                localStorage.setItem('user', JSON.stringify(data.user));
-                window.location.href = 'dashboard.html';
-            } else {
-                showToast(data.error || 'Login failed', 'error');
-            }
-        } catch (err) {
-            showToast('Connection failed', 'error');
-        } finally {
-            setLoading(btn, false, 'Verify & Login');
-        }
-    });
-}
-
-window.requestLoginOTP = async function () {
-    const phone = document.getElementById('loginPhone').value;
-    const btn = document.getElementById('getOtpBtn');
-
-    if (!phone) {
-        showToast('Please enter your phone number', 'error');
-        return;
-    }
-
-    setLoading(btn, true, 'Sending...');
-
-    try {
-        const res = await fetch(`${API_URL}/auth/otp/request`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ identifier: phone, type: 'login' })
-        });
-        const data = await res.json();
-
-        if (res.ok) {
-            showToast('OTP sent! Check your email (or console for mock).');
-            document.getElementById('phoneStep1').style.display = 'none';
-            document.getElementById('phoneStep2').style.display = 'block';
-        } else {
-            showToast(data.error || 'Failed to send OTP', 'error');
-        }
-    } catch (err) {
-        showToast('Connection failed', 'error');
-    } finally {
-        setLoading(btn, false, 'Get OTP');
-    }
-}
-
-window.resetPhoneLogin = function () {
-    document.getElementById('phoneStep1').style.display = 'block';
-    document.getElementById('phoneStep2').style.display = 'none';
-}
-
-window.switchLoginTab = function (type) {
-    const tabEmail = document.getElementById('tabEmail');
-    const tabPhone = document.getElementById('tabPhone');
-    const formEmail = document.getElementById('loginForm');
-    const formPhone = document.getElementById('loginPhoneForm');
-
-    if (type === 'email') {
-        tabEmail.style.borderColor = 'var(--primary)';
-        tabPhone.style.borderColor = 'transparent';
-        formEmail.style.display = 'block';
-        formPhone.style.display = 'none';
-    } else {
-        tabPhone.style.borderColor = 'var(--primary)';
-        tabEmail.style.borderColor = 'transparent';
-        formPhone.style.display = 'block';
-        formEmail.style.display = 'none';
-    }
-}
 
 // Global state for Settings OTP
 let activeOtp = null;
@@ -550,7 +461,7 @@ if (predictBtn) {
             formData.append('user_id', currentUser.id);
         }
 
-        // Send to Backend
+        // Step 1: Fast prediction
         fetch(`${API_URL}/predict`, {
             method: 'POST',
             body: formData
@@ -561,6 +472,31 @@ if (predictBtn) {
                     showToast('Error: ' + data.error, 'error');
                 } else {
                     showResult(data);
+
+                    // Step 2: Async Grad-CAM — runs after result is shown
+                    const gradcamData = new FormData();
+                    gradcamData.append('image', fileInput.files[0]);
+                    fetch(`${API_URL}/gradcam`, {
+                        method: 'POST',
+                        body: gradcamData
+                    })
+                        .then(r => r.json())
+                        .then(gcData => {
+                            const heatmapContainer = document.getElementById('heatmapContainer');
+                            const heatmapImage = document.getElementById('heatmapImage');
+                            const heatmapLoading = document.getElementById('heatmapLoading');
+                            if (gcData.heatmap && heatmapImage) {
+                                heatmapImage.src = gcData.heatmap;
+                                heatmapImage.style.display = 'block';
+                                if (heatmapLoading) heatmapLoading.style.display = 'none';
+                                heatmapContainer.style.display = 'block';
+                            }
+                        })
+                        .catch(err => {
+                            console.warn('Grad-CAM failed (non-critical):', err);
+                            const heatmapLoading = document.getElementById('heatmapLoading');
+                            if (heatmapLoading) heatmapLoading.innerHTML = '<p style="color:var(--text-muted);font-size:0.8rem;">Grad-CAM unavailable</p>';
+                        });
                 }
             })
             .catch(err => {
@@ -568,7 +504,7 @@ if (predictBtn) {
                 showToast('Failed to connect to server. Is backend running?', 'error');
             })
             .finally(() => {
-                // Reset Button
+                // Re-enable button immediately after predict (not waiting for gradcam)
                 predictBtn.disabled = false;
                 predictBtn.innerText = originalText;
                 predictBtn.style.opacity = '1';
@@ -591,19 +527,24 @@ function showResult(result) {
         animateValue(confidenceText, 0, result.confidence, 1000);
     }, 100);
 
-    // Show Heatmap if available
+    // Show Grad-CAM loading placeholder immediately
     const heatmapContainer = document.getElementById('heatmapContainer');
     const heatmapImage = document.getElementById('heatmapImage');
+    const heatmapLoading = document.getElementById('heatmapLoading');
 
-    if (result.heatmap && heatmapContainer && heatmapImage) {
-        heatmapImage.src = result.heatmap;
+    if (heatmapContainer) {
         heatmapContainer.style.display = 'block';
-    } else if (heatmapContainer) {
-        heatmapContainer.style.display = 'none';
-        heatmapImage.src = '';
+        if (heatmapImage) heatmapImage.style.display = 'none';
+        if (heatmapLoading) {
+            heatmapLoading.style.display = 'flex';
+            heatmapLoading.innerHTML = `
+                <div style="width:20px;height:20px;border:2px solid var(--primary);border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+                <span style="font-size:0.85rem;color:var(--text-muted);">Generating Grad-CAM heatmap...</span>
+            `;
+        }
     }
 
-    showToast('Prediction generated successfully!');
+    showToast('Prediction complete! Generating heatmap...');
 }
 
 function animateValue(obj, start, end, duration) {

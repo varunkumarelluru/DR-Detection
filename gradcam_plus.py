@@ -1,121 +1,99 @@
-"""
-gradcam_plus.py — Score-CAM for TFLite DR model
-=================================================
-
-WHY SCORE-CAM INSTEAD OF RISE:
-  RISE requires hundreds of random-mask inferences to converge — at low counts
-  (< 500) it produces random colored noise, not meaningful activation maps.
-  
-  Score-CAM uses the model's own convolutional feature maps (accessible via
-  interpreter.get_tensor() after a single forward pass), upsamples each
-  channel map to 224×224 as a soft mask, scores it, and accumulates.
-  
-  Result: deterministic, coherent, Grad-CAM quality heatmaps using only
-  ~80 model inferences. No gradients, no second model — pure TFLite.
-
-REFERENCE:
-  Wang et al. "Score-CAM: Score-Weighted Visual Explanations for CNNs"
-  CVPR Workshop 2020. https://arxiv.org/abs/1910.01279
-"""
-
 import io
 import base64
 import numpy as np
+import cv2
 from PIL import Image, ImageFilter
 
 
-# ──────────────────────────────────────────────────────────────
-# INTERNAL: locate last convolutional feature maps in TFLite
-# ──────────────────────────────────────────────────────────────
+# ============================================================
+# 🔥 PREPROCESSING (FIXES BORDER ISSUE)
+# ============================================================
+
+def crop_retina(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
+
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if len(contours) == 0:
+        return image
+
+    largest = max(contours, key=cv2.contourArea)
+    x, y, w, h = cv2.boundingRect(largest)
+
+    return image[y:y+h, x:x+w]
+
+
+def create_retina_mask(image):
+    h, w = image.shape[:2]
+    mask = np.zeros((h, w), dtype=np.float32)
+
+    center = (w // 2, h // 2)
+    radius = min(center[0], center[1])
+
+    cv2.circle(mask, center, radius, 1, -1)
+    return mask
+
+
+def apply_mask_to_heatmap(saliency, img_array):
+    mask = create_retina_mask(img_array[0])
+    return saliency * mask
+
+
+# ============================================================
+# 🔍 EXTRACT LAST CONV FEATURES (UNCHANGED)
+# ============================================================
+
 def _extract_last_conv_activations(interpreter, img_array):
-    """
-    Run one forward pass and extract the deepest spatial feature map tensor.
-
-    TFLite stores ALL intermediate tensor values in memory after invoke().
-    We scan interpreter.get_tensor_details() for 4-D tensors with small
-    spatial resolution (≤ 28×28) — the last one is the most semantic.
-
-    For EfficientNetB0 the last conv block outputs (1, 7, 7, 1280) or
-    (1, 7, 7, 320) depending on the export. We use whichever 4-D tensor
-    has the highest tensor index (= deepest position in the graph).
-
-    Returns:
-        np.ndarray shape (1, fH, fW, C)  float32, or None
-    """
     interpreter.set_tensor(interpreter.get_input_details()[0]['index'], img_array)
     interpreter.invoke()
 
-    candidates = []   # (tensor_index, copy_of_data)
+    candidates = []
 
     for td in interpreter.get_tensor_details():
-        raw_shape = td['shape']
-        # shape may be a numpy array; convert to plain tuple
-        shape = tuple(int(s) for s in raw_shape)
+        shape = tuple(int(s) for s in td['shape'])
 
         if not (
-            len(shape) == 4
-            and shape[0] == 1         # single-sample batch
-            and 3 <= shape[1] <= 28   # small spatial H (deep layers)
-            and shape[1] == shape[2]  # square feature map
-            and shape[3] >= 64        # meaningful channel count
+            len(shape) == 4 and shape[0] == 1 and
+            3 <= shape[1] <= 28 and shape[1] == shape[2] and
+            shape[3] >= 64
         ):
             continue
 
         try:
             data = interpreter.get_tensor(td['index'])
-            if data is not None and data.ndim == 4 and data.dtype == np.float32:
+            if data is not None and data.ndim == 4:
                 candidates.append((td['index'], data.copy()))
-        except Exception:
+        except:
             pass
 
     if not candidates:
         return None
 
-    # Pick the highest-index tensor = deepest = most semantic
     candidates.sort(key=lambda x: x[0])
-    idx, acts = candidates[-1]
-    print(f"[score_cam] last conv tensor #{idx}  shape={acts.shape}")
-    return acts
+    return candidates[-1][1]
 
 
-# ──────────────────────────────────────────────────────────────
-# SCORE-CAM  (primary method)
-# ──────────────────────────────────────────────────────────────
+# ============================================================
+# 🎯 SCORE-CAM (UNCHANGED CORE)
+# ============================================================
+
 def generate_score_cam(
     img_array,
     interpreter,
     input_details,
     output_details,
-    target_class_idx: int,
-    n_channels: int = 80,
-) -> "np.ndarray | None":
-    """
-    Score-CAM algorithm:
-
-    For each of the top-N convolutional channels (ranked by activation
-    magnitude):
-        1. Normalize the channel's spatial activation to [0, 1]
-        2. Upsample it to 224 × 224 → soft mask
-        3. Multiply the original image by the soft mask
-        4. Run inference on the masked image
-        5. Accumulate:  saliency += (score - baseline) × soft_mask
-
-    Only channels where masking INCREASES the target-class score above
-    baseline contribute positively (ReLU behaviour built-in via subtraction).
-
-    n_channels=80 → ~80 inferences × ~15 ms each ≈ 1.2 s on Render free tier.
-    """
+    target_class_idx,
+    n_channels=80,
+):
     H, W = 224, 224
 
-    # ── Extract conv activations (one forward pass) ──────────────────────
     conv_acts = _extract_last_conv_activations(interpreter, img_array)
     if conv_acts is None:
-        print("[score_cam] Could not find conv feature maps")
         return None
 
     _, fH, fW, C = conv_acts.shape
 
-    # ── Baseline score: model on all-zero (blank) input ──────────────────
+    # Baseline
     blank = np.zeros_like(img_array)
     interpreter.set_tensor(input_details[0]['index'], blank)
     interpreter.invoke()
@@ -123,191 +101,127 @@ def generate_score_cam(
         interpreter.get_tensor(output_details[0]['index'])[0][target_class_idx]
     )
 
-    # ── Select top-N channels by RMS activation energy ───────────────────
-    channel_rms = np.sqrt(np.mean(conv_acts[0] ** 2, axis=(0, 1)))   # (C,)
-    if C > n_channels:
-        top_idx = np.argsort(channel_rms)[-n_channels:]
-    else:
-        top_idx = np.arange(C)
+    # Top channels
+    rms = np.sqrt(np.mean(conv_acts[0] ** 2, axis=(0, 1)))
+    top_idx = np.argsort(rms)[-n_channels:] if C > n_channels else np.arange(C)
 
     saliency = np.zeros((H, W), dtype=np.float32)
 
-    # ── Score each channel ────────────────────────────────────────────────
     for k in top_idx:
-        act_k = conv_acts[0, :, :, k]   # (fH, fW)
+        act = conv_acts[0, :, :, k]
+        lo, hi = act.min(), act.max()
 
-        lo, hi = float(act_k.min()), float(act_k.max())
         if hi - lo < 1e-8:
             continue
 
-        # Normalise to [0, 1] and upsample
-        act_norm = (act_k - lo) / (hi - lo)
-        act_pil  = Image.fromarray(np.uint8(act_norm * 255), mode='L')
-        soft_mask = (
-            np.array(act_pil.resize((W, H), Image.BILINEAR), dtype=np.float32)
-            / 255.0
-        )   # (H, W) in [0, 1]
+        act = (act - lo) / (hi - lo)
 
-        # Soft-masked image
-        masked = img_array * soft_mask[np.newaxis, :, :, np.newaxis]
+        act_img = Image.fromarray(np.uint8(act * 255))
+        mask = np.array(act_img.resize((W, H), Image.BILINEAR)) / 255.0
 
-        # Inference
+        masked = img_array * mask[np.newaxis, :, :, np.newaxis]
+
         interpreter.set_tensor(input_details[0]['index'], masked)
         interpreter.invoke()
+
         score = float(
             interpreter.get_tensor(output_details[0]['index'])[0][target_class_idx]
         )
 
-        # Accumulate: channels that help the target class get high weight
-        saliency += (score - baseline) * soft_mask
+        saliency += (score - baseline) * mask
 
-    # ReLU: keep only positively-contributing regions
-    return np.maximum(saliency, 0.0)
+    return np.maximum(saliency, 0)
 
 
-# ──────────────────────────────────────────────────────────────
-# RISE  (fallback — used if TFLite tensors are inaccessible)
-# ──────────────────────────────────────────────────────────────
-def _rise_fallback(
-    img_array, interpreter, input_details, output_details,
-    target_class_idx, n_masks=250, mask_res=14, p_keep=0.5,
-):
-    """
-    RISE with enough masks (250) for reasonable convergence at mask_res=14.
-    Used only when Score-CAM cannot find conv tensors.
-    """
-    _, H, W, _ = img_array.shape
-    sal = np.zeros((H, W), dtype=np.float32)
-    wt  = np.zeros((H, W), dtype=np.float32)
-    up_h, up_w = H + H // mask_res, W + W // mask_res
+# ============================================================
+# 🎨 POST-PROCESSING
+# ============================================================
 
-    for _ in range(n_masks):
-        raw  = (np.random.rand(mask_res, mask_res) < p_keep).astype(np.float32)
-        m    = np.array(
-            Image.fromarray((raw * 255).astype(np.uint8), mode='L')
-            .resize((up_w, up_h), Image.BILINEAR),
-            dtype=np.float32
-        ) / 255.0
-        sy = np.random.randint(0, H // mask_res + 1)
-        sx = np.random.randint(0, W // mask_res + 1)
-        mask = m[sy: sy + H, sx: sx + W]
-
-        interpreter.set_tensor(input_details[0]['index'],
-                               img_array * mask[np.newaxis, :, :, np.newaxis])
-        interpreter.invoke()
-        score = float(
-            interpreter.get_tensor(output_details[0]['index'])[0][target_class_idx]
-        )
-        sal += score * mask
-        wt  += mask
-
-    return sal / np.maximum(wt, 1e-8)
-
-
-# ──────────────────────────────────────────────────────────────
-# POST-PROCESSING HELPERS
-# ──────────────────────────────────────────────────────────────
-def _smooth(saliency: np.ndarray, radius: float = 2.0) -> np.ndarray:
-    """Light Gaussian smooth to remove sub-pixel noise (not structure)."""
+def _smooth(saliency):
     peak = saliency.max()
     if peak < 1e-8:
         return saliency
-    u8  = np.uint8(np.clip(saliency / peak * 255, 0, 255))
-    pil = Image.fromarray(u8, mode='L').filter(ImageFilter.GaussianBlur(radius))
-    return np.array(pil, dtype=np.float32) / 255.0
+
+    img = Image.fromarray(np.uint8(saliency / peak * 255))
+    img = img.filter(ImageFilter.GaussianBlur(2))
+
+    return np.array(img) / 255.0
 
 
-def _normalize(saliency: np.ndarray) -> np.ndarray:
-    """ReLU + min-max stretch to [0, 1]."""
-    s = np.maximum(saliency, 0.0)
+def _normalize(saliency):
+    s = np.maximum(saliency, 0)
     lo, hi = s.min(), s.max()
+
     if hi - lo < 1e-8:
         return np.zeros_like(s)
+
     return (s - lo) / (hi - lo)
 
 
-def _jet(sal: np.ndarray) -> Image.Image:
-    """
-    Pure-NumPy JET colormap  (matches matplotlib exactly)
-       0.0 → blue | 0.25 → cyan | 0.5 → green | 0.75 → yellow | 1.0 → red
-    Low-saliency border/background pixels land at 0 → deep blue.
-    """
-    r = np.clip(1.5 - np.abs(4.0 * sal - 3.0), 0.0, 1.0)
-    g = np.clip(1.5 - np.abs(4.0 * sal - 2.0), 0.0, 1.0)
-    b = np.clip(1.5 - np.abs(4.0 * sal - 1.0), 0.0, 1.0)
-    return Image.fromarray(np.uint8(np.stack([r, g, b], -1) * 255), mode='RGB')
+def _jet(sal):
+    r = np.clip(1.5 - np.abs(4 * sal - 3), 0, 1)
+    g = np.clip(1.5 - np.abs(4 * sal - 2), 0, 1)
+    b = np.clip(1.5 - np.abs(4 * sal - 1), 0, 1)
+
+    return Image.fromarray(np.uint8(np.stack([r, g, b], -1) * 255))
 
 
-def _overlay(img_array: np.ndarray, heat: Image.Image, alpha: float) -> Image.Image:
-    """
-    Weighted additive blend:  result = orig*(1-α) + jet*α
+def _overlay(img_array, heat, alpha=0.5):
+    orig = np.array(img_array[0], dtype=np.float32)
 
-    α = 0.50 keeps the original retinal image clearly visible (blood vessel
-    lines, optic disc) while making the JET colours vibrant — matching the
-    reference target appearance.
-
-    Dark border pixels (orig≈0) stay dark-blue because jet is blue there
-    and orig is 0, so result = 0*(1-α) + blue_jet*α = dim blue.
-    """
-    orig = np.array(img_array[0], dtype=np.float32)     # (H,W,3)
     if heat.size != (orig.shape[1], orig.shape[0]):
-        heat = heat.resize((orig.shape[1], orig.shape[0]), Image.BILINEAR)
-    h = np.array(heat, dtype=np.float32)
-    return Image.fromarray(
-        np.uint8(np.clip(orig * (1.0 - alpha) + h * alpha, 0, 255)),
-        mode='RGB'
-    )
+        heat = heat.resize((orig.shape[1], orig.shape[0]))
+
+    heat = np.array(heat, dtype=np.float32)
+
+    result = orig * (1 - alpha) + heat * alpha
+    return Image.fromarray(np.uint8(result))
 
 
-# ──────────────────────────────────────────────────────────────
-# MAIN ENTRY POINT
-# ──────────────────────────────────────────────────────────────
+# ============================================================
+# 🚀 MAIN FUNCTION
+# ============================================================
+
 def generate_gradcam_plus_plus(
-    img_array: np.ndarray,
+    img_array,
     interpreter,
     input_details,
     output_details,
-    target_class_idx: int,
-    n_masks: int = 250,   # used only by RISE fallback
-    alpha: float = 0.50,
-) -> "str | None":
-    """
-    Generate a clinically interpretable heatmap for the DR prediction.
-
-    Primary:  Score-CAM  — real convolutional feature maps, ~80 inferences,
-              deterministic, matches Grad-CAM quality exactly.
-    Fallback: RISE       — random masking, 250 inferences for convergence.
-
-    Returns "data:image/png;base64,..." or None on error.
-    """
+    target_class_idx,
+    alpha=0.5,
+):
     try:
-        # ── Primary: Score-CAM ───────────────────────────────────────────
+        # 🔥 IMPORTANT: Crop BEFORE model inference
+        original_img = (img_array[0] * 255).astype(np.uint8)
+        original_img = crop_retina(original_img)
+        original_img = cv2.resize(original_img, (224, 224))
+        img_array = np.expand_dims(original_img / 255.0, axis=0).astype(np.float32)
+
+        # Score-CAM
         saliency = generate_score_cam(
-            img_array, interpreter, input_details, output_details,
-            target_class_idx, n_channels=80,
+            img_array, interpreter, input_details, output_details, target_class_idx
         )
 
-        # ── Fallback: RISE ───────────────────────────────────────────────
-        if saliency is None or saliency.max() < 1e-8:
-            print("[gradcam_plus] Score-CAM unavailable, switching to RISE")
-            saliency = _rise_fallback(
-                img_array, interpreter, input_details, output_details,
-                target_class_idx, n_masks=n_masks,
-            )
+        if saliency is None:
+            return None
 
-        # ── Post-processing ──────────────────────────────────────────────
-        saliency = _smooth(saliency, radius=2.0)
+        # Post-processing
+        saliency = _smooth(saliency)
         saliency = _normalize(saliency)
 
-        # ── Colourmap + overlay ──────────────────────────────────────────
-        heatmap = _jet(saliency)
-        overlay = _overlay(img_array, heatmap, alpha=alpha)
+        # 🔥 KEY FIX (REMOVE BORDER EFFECT)
+        saliency = apply_mask_to_heatmap(saliency, img_array)
 
-        # ── Encode to base64 PNG ─────────────────────────────────────────
+        # Visualization
+        heatmap = _jet(saliency)
+        overlay = _overlay(img_array, heatmap, alpha)
+
+        # Encode
         buf = io.BytesIO()
-        overlay.save(buf, format="PNG", optimize=True)
+        overlay.save(buf, format="PNG")
+
         return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
-    except Exception as exc:
-        print(f"[gradcam_plus] Error: {exc}")
+    except Exception as e:
+        print("Error:", e)
         return None

@@ -41,17 +41,26 @@ except ImportError:
 # =========================
 app = Flask(__name__)
 
-CORS(app, resources={r"/*": {"origins": [
+ALLOWED_ORIGINS = [
     "https://mlvision.netlify.app",
     "http://localhost:5500",
-    "http://127.0.0.1:5500"
-]}})
+    "http://127.0.0.1:5500",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
 
 @app.after_request
 def after_request(response):
-    response.headers["Access-Control-Allow-Origin"] = "https://mlvision.netlify.app"
+    origin = request.headers.get('Origin', '')
+    if origin in ALLOWED_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+    else:
+        response.headers["Access-Control-Allow-Origin"] = ALLOWED_ORIGINS[0]
     response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
-    response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,OPTIONS"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
 
 # =========================
@@ -162,11 +171,27 @@ def predict():
     idx = int(np.argmax(pred))
     label = CLASS_NAMES[idx]
     confidence = float(np.max(pred)) * 100
+    dr_present = bool(idx > 0)
+
+    # Save prediction to DB if user is logged in
+    user_id = request.form.get('user_id')
+    if user_id:
+        try:
+            conn = sqlite3.connect("database.db")
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO predictions (user_id, label, confidence, dr_present) VALUES (?,?,?,?)",
+                (int(user_id), label, round(confidence, 2), dr_present)
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print("DB save error:", e)
 
     return jsonify({
         "label": label,
         "confidence": round(confidence, 2),
-        "dr_present": bool(idx > 0)
+        "dr_present": dr_present
     })
 
 @app.route("/register", methods=["POST"])
@@ -210,6 +235,86 @@ def login():
     if user:
         return jsonify({"message": "Login success", "user": {"id": user[0], "name": user[1], "email": user[2]}})
     return jsonify({"error": "Invalid credentials"}), 401
+
+# =========================
+# HISTORY
+# =========================
+@app.route("/history/<int:user_id>", methods=["GET", "OPTIONS"])
+def get_history(user_id):
+    if request.method == "OPTIONS":
+        return "", 200
+
+    conn = sqlite3.connect("database.db")
+    c = conn.cursor()
+    c.execute(
+        "SELECT id, label, confidence, dr_present, timestamp FROM predictions WHERE user_id=? ORDER BY timestamp DESC",
+        (user_id,)
+    )
+    rows = c.fetchall()
+    conn.close()
+
+    result = [
+        {
+            "id": r[0],
+            "label": r[1],
+            "confidence": round(r[2], 2),
+            "dr_present": bool(r[3]),
+            "timestamp": r[4]
+        }
+        for r in rows
+    ]
+    return jsonify(result)
+
+# =========================
+# PROFILE UPDATE
+# =========================
+@app.route("/profile/update", methods=["POST", "OPTIONS"])
+def update_profile():
+    if request.method == "OPTIONS":
+        return "", 200
+
+    data = request.json
+    user_id = data.get("user_id")
+    name = data.get("name")
+    password = data.get("password")
+    otp_provided = data.get("otp")
+
+    if not user_id:
+        return jsonify({"error": "Missing user_id"}), 400
+
+    # If password change requested, require OTP
+    if password:
+        if not otp_provided:
+            return jsonify({"error": "OTP required for password change", "require_otp": True}), 403
+
+        # Validate OTP
+        conn = sqlite3.connect("database.db")
+        c = conn.cursor()
+        c.execute(
+            "SELECT id FROM otps WHERE user_id=? AND otp=? AND type='update' AND used=0 AND expires_at > datetime('now')",
+            (user_id, otp_provided)
+        )
+        otp_row = c.fetchone()
+        if not otp_row:
+            conn.close()
+            return jsonify({"error": "Invalid or expired OTP"}), 403
+
+        # Mark OTP as used
+        c.execute("UPDATE otps SET used=1 WHERE id=?", (otp_row[0],))
+
+        hashed = hashlib.sha256(password.encode()).hexdigest()
+        c.execute("UPDATE users SET name=?, password=? WHERE id=?", (name, hashed, user_id))
+        conn.commit()
+        conn.close()
+    else:
+        # Just update name
+        conn = sqlite3.connect("database.db")
+        c = conn.cursor()
+        c.execute("UPDATE users SET name=? WHERE id=?", (name, user_id))
+        conn.commit()
+        conn.close()
+
+    return jsonify({"message": "Profile updated successfully"})
 
 # =========================
 # RUN LOCAL

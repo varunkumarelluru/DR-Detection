@@ -98,41 +98,67 @@ if (mobileMenuBtn) {
 
 // History Logic
 async function loadHistory() {
-    if (!currentUser) return;
     const container = document.getElementById('historyTableContainer');
-    container.innerHTML = '<p>Loading...</p>';
+    if (!currentUser || !currentUser.id) {
+        container.innerHTML = '<p style="color: var(--text-muted);">Please log in to view your prediction history.</p>';
+        return;
+    }
+
+    container.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 0.75rem; color: var(--text-muted); padding: 1rem 0;">
+            <div style="width: 18px; height: 18px; border: 2px solid var(--primary); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+            Loading your prediction history...
+        </div>`;
 
     try {
         const res = await fetch(`${API_URL}/history/${currentUser.id}`, {
-            method: 'GET' // Note: in real app, user ID usually from token, here from URL for simplicity
-            // But wait, our mock login didn't return ID. We need to fix login return in app.py first or assume we have it.
-            // Let's assume we fixed app.py to return ID (we did: 'SELECT *' returns id at index 0).
-            // Actually, we returned {'name': user[1], 'email': user[2]} -- we missed ID! 
-            // I should assume ID is missing and fix it, but for now let's hope I fixed it or I will fix it.
-            // Wait, I see app.py 'login': `return jsonify({'message': 'Login successful!', 'user': {'name': user[1], 'email': user[2]}}), 200`
-            // User ID is at index 0. user[1] is name. I need to update app.py to return ID.
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
         });
 
-        // Let's assume I'll fix app.py to return ID.
-        // For now, let's proceed with app.js assuming currentUser.id works.
+        if (!res.ok) {
+            throw new Error(`Server responded with status ${res.status}`);
+        }
+
         const data = await res.json();
 
-        if (data.length === 0) {
-            container.innerHTML = '<p>No prediction history found.</p>';
+        if (!Array.isArray(data) || data.length === 0) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+                    <svg width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="margin: 0 auto 1rem; opacity: 0.4; display: block;">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    <p>No prediction history yet.</p>
+                    <p style="font-size: 0.85rem; margin-top: 0.5rem;">Run your first scan from the Dashboard!</p>
+                </div>`;
             return;
         }
 
         let html = '<div style="display: flex; flex-direction: column; gap: 1rem;">';
-        data.forEach(item => {
+        data.forEach((item, index) => {
+            const dateStr = item.timestamp
+                ? new Date(item.timestamp + (item.timestamp.endsWith('Z') ? '' : 'Z')).toLocaleString()
+                : 'Unknown date';
+            const badgeColor = item.dr_present ? '#ef4444' : '#4ade80';
+            const badgeBg = item.dr_present ? 'rgba(239,68,68,0.12)' : 'rgba(74,222,128,0.12)';
+            const statusIcon = item.dr_present
+                ? `<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>`
+                : `<svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`;
+
             html += `
-                <div class="glass-card" style="padding: 1.5rem; background: rgba(30, 41, 59, 0.4); display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <h4 style="margin-bottom: 0.5rem; color: ${item.dr_present ? '#ef4444' : '#4ade80'};">${item.label}</h4>
-                        <p style="font-size: 0.8rem;">${new Date(item.timestamp).toLocaleString()}</p>
+                <div class="glass-card" style="padding: 1.25rem 1.5rem; background: rgba(30, 41, 59, 0.4); display: flex; justify-content: space-between; align-items: center; animation: fadeInUp 0.4s ease both; animation-delay: ${index * 0.05}s;">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div style="background: ${badgeBg}; border: 1px solid ${badgeColor}; color: ${badgeColor}; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                            ${statusIcon}
+                        </div>
+                        <div>
+                            <h4 style="margin-bottom: 0.25rem; color: ${badgeColor};">${item.label}</h4>
+                            <p style="font-size: 0.8rem; color: var(--text-muted);">${dateStr}</p>
+                        </div>
                     </div>
                     <div style="text-align: right;">
-                         <div style="font-weight: bold; font-size: 1.2rem;">${item.confidence.toFixed(1)}%</div>
-                         <div style="font-size: 0.8rem; color: var(--text-muted);">Confidence</div>
+                        <div style="font-weight: bold; font-size: 1.3rem; color: var(--primary);">${item.confidence.toFixed(1)}%</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">Confidence</div>
                     </div>
                 </div>
             `;
@@ -141,8 +167,13 @@ async function loadHistory() {
         container.innerHTML = html;
 
     } catch (err) {
-        console.error(err);
-        container.innerHTML = '<p>Failed to load history.</p>';
+        console.error('History load error:', err);
+        container.innerHTML = `
+            <div style="text-align: center; padding: 2rem; color: #ef4444;">
+                <p>⚠️ Failed to load history.</p>
+                <p style="font-size: 0.85rem; margin-top: 0.5rem; color: var(--text-muted);">Please check your connection and try again.</p>
+                <button onclick="loadHistory()" class="btn btn-secondary" style="margin-top: 1rem; padding: 0.5rem 1.5rem;">Retry</button>
+            </div>`;
     }
 }
 

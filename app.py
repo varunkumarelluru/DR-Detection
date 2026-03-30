@@ -184,9 +184,8 @@ def gradcam():
         input_details=input_details,
         output_details=output_details,
         target_class_idx=target_idx,
-        n_masks=150,        # ~2-3s on Render free tier, sharp result
-        use_guided=True,    # Guided sharpening for lesion edges
-        alpha=0.40,         # Clinical standard overlay transparency
+        n_masks=120,   # 14×14 grid, ~2-3s on Render free tier
+        alpha=0.55,    # vibrant overlay matching reference style
     )
 
     if heatmap_b64:

@@ -10,7 +10,7 @@ The project uses **EfficientNetB0**, a lightweight Convolutional Neural Network 
 
 **Frontend:** https://mlvision.netlify.app/login.html
 
-Replace `YOUR_NETLIFY_URL` with your deployed Netlify website URL.
+
 
 ## 🛠️ Technologies Used
 
